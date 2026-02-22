@@ -177,6 +177,11 @@ def load_config():
         "ntfy_token", ""
     )
 
+    # Server酱配置
+    config["SERVERCHAN_SENDKEY"] = os.environ.get(
+        "SERVERCHAN_SENDKEY", ""
+    ).strip() or webhooks.get("serverchan_sendkey", "")
+
     # 输出配置来源信息
     notification_sources = []
     if config["FEISHU_WEBHOOK_URL"]:
@@ -201,6 +206,10 @@ def load_config():
     if config["NTFY_SERVER_URL"] and config["NTFY_TOPIC"]:
         server_source = "环境变量" if os.environ.get("NTFY_SERVER_URL") else "配置文件"
         notification_sources.append(f"ntfy({server_source})")
+
+    if config["SERVERCHAN_SENDKEY"]:
+        source = "环境变量" if os.environ.get("SERVERCHAN_SENDKEY") else "配置文件"
+        notification_sources.append(f"Server酱({source})")
 
     if notification_sources:
         print(f"通知渠道配置来源: {', '.join(notification_sources)}")
@@ -2837,6 +2846,8 @@ def split_content_into_batches(
             max_bytes = CONFIG.get("FEISHU_BATCH_SIZE", 29000)
         elif format_type == "ntfy":
             max_bytes = 3800
+        elif format_type == "serverchan":
+            max_bytes = 32000
         else:
             max_bytes = CONFIG.get("MESSAGE_BATCH_SIZE", 4000)
 
@@ -2861,6 +2872,8 @@ def split_content_into_batches(
         base_header += f"**时间：** {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         base_header += f"**类型：** 热点分析报告\n\n"
         base_header += "---\n\n"
+    elif format_type == "serverchan":
+        base_header = f"**总新闻数：** {total_titles}\n\n"
 
     base_footer = ""
     if format_type == "wework":
@@ -2883,6 +2896,10 @@ def split_content_into_batches(
         base_footer = f"\n\n> 更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
         if update_info:
             base_footer += f"\n> TrendRadar 发现新版本 **{update_info['remote_version']}**，当前 **{update_info['current_version']}**"
+    elif format_type == "serverchan":
+        base_footer = f"\n\n> 更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
+        if update_info:
+            base_footer += f"\n> TrendRadar 发现新版本 **{update_info['remote_version']}**，当前 **{update_info['current_version']}**"
 
     stats_header = ""
     if report_data["stats"]:
@@ -2895,6 +2912,8 @@ def split_content_into_batches(
         elif format_type == "feishu":
             stats_header = f"📊 **热点词汇统计**\n\n"
         elif format_type == "dingtalk":
+            stats_header = f"📊 **热点词汇统计**\n\n"
+        elif format_type == "serverchan":
             stats_header = f"📊 **热点词汇统计**\n\n"
 
     current_batch = base_header
@@ -2989,6 +3008,17 @@ def split_content_into_batches(
                     )
                 else:
                     word_header = f"📌 {sequence_display} **{word}** : {count} 条\n\n"
+            elif format_type == "serverchan":
+                if count >= 10:
+                    word_header = (
+                        f"🔥 {sequence_display} **{word}** : **{count}** 条\n\n"
+                    )
+                elif count >= 5:
+                    word_header = (
+                        f"📈 {sequence_display} **{word}** : **{count}** 条\n\n"
+                    )
+                else:
+                    word_header = f"📌 {sequence_display} **{word}** : {count} 条\n\n"
 
             # 构建第一条新闻
             first_news_line = ""
@@ -3011,6 +3041,10 @@ def split_content_into_batches(
                         "feishu", first_title_data, show_source=True
                     )
                 elif format_type == "dingtalk":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", first_title_data, show_source=True
+                    )
+                elif format_type == "serverchan":
                     formatted_title = format_title_for_platform(
                         "dingtalk", first_title_data, show_source=True
                     )
@@ -3063,6 +3097,10 @@ def split_content_into_batches(
                     formatted_title = format_title_for_platform(
                         "dingtalk", title_data, show_source=True
                     )
+                elif format_type == "serverchan":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", title_data, show_source=True
+                    )
                 else:
                     formatted_title = f"{title_data['title']}"
 
@@ -3096,6 +3134,8 @@ def split_content_into_batches(
                     separator = f"\n{CONFIG['FEISHU_MESSAGE_SEPARATOR']}\n\n"
                 elif format_type == "dingtalk":
                     separator = f"\n---\n\n"
+                elif format_type == "serverchan":
+                    separator = f"\n---\n\n"
 
                 test_content = current_batch + separator
                 if (
@@ -3118,6 +3158,8 @@ def split_content_into_batches(
         elif format_type == "feishu":
             new_header = f"\n{CONFIG['FEISHU_MESSAGE_SEPARATOR']}\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
         elif format_type == "dingtalk":
+            new_header = f"\n---\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
+        elif format_type == "serverchan":
             new_header = f"\n---\n\n🆕 **本次新增热点新闻** (共 {report_data['total_new_count']} 条)\n\n"
 
         test_content = current_batch + new_header
@@ -3146,6 +3188,8 @@ def split_content_into_batches(
                 source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
             elif format_type == "dingtalk":
                 source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
+            elif format_type == "serverchan":
+                source_header = f"**{source_data['source_name']}** ({len(source_data['titles'])} 条):\n\n"
 
             # 构建第一条新增新闻
             first_news_line = ""
@@ -3167,6 +3211,10 @@ def split_content_into_batches(
                         "feishu", title_data_copy, show_source=False
                     )
                 elif format_type == "dingtalk":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", title_data_copy, show_source=False
+                    )
+                elif format_type == "serverchan":
                     formatted_title = format_title_for_platform(
                         "dingtalk", title_data_copy, show_source=False
                     )
@@ -3215,6 +3263,10 @@ def split_content_into_batches(
                     formatted_title = format_title_for_platform(
                         "dingtalk", title_data_copy, show_source=False
                     )
+                elif format_type == "serverchan":
+                    formatted_title = format_title_for_platform(
+                        "dingtalk", title_data_copy, show_source=False
+                    )
                 else:
                     formatted_title = f"{title_data_copy['title']}"
 
@@ -3246,6 +3298,8 @@ def split_content_into_batches(
         elif format_type == "feishu":
             failed_header = f"\n{CONFIG['FEISHU_MESSAGE_SEPARATOR']}\n\n⚠️ **数据获取失败的平台：**\n\n"
         elif format_type == "dingtalk":
+            failed_header = f"\n---\n\n⚠️ **数据获取失败的平台：**\n\n"
+        elif format_type == "serverchan":
             failed_header = f"\n---\n\n⚠️ **数据获取失败的平台：**\n\n"
 
         test_content = current_batch + failed_header
@@ -3337,6 +3391,7 @@ def send_to_notifications(
     ntfy_server_url = CONFIG["NTFY_SERVER_URL"]
     ntfy_topic = CONFIG["NTFY_TOPIC"]
     ntfy_token = CONFIG.get("NTFY_TOKEN", "")
+    serverchan_sendkey = CONFIG["SERVERCHAN_SENDKEY"]
 
     update_info_to_send = update_info if CONFIG["SHOW_VERSION_UPDATE"] else None
 
@@ -3376,6 +3431,17 @@ def send_to_notifications(
             ntfy_server_url,
             ntfy_topic,
             ntfy_token,
+            report_data,
+            report_type,
+            update_info_to_send,
+            proxy_url,
+            mode,
+        )
+
+    # 发送到Server酱（微信推送）
+    if serverchan_sendkey:
+        results["serverchan"] = send_to_serverchan(
+            serverchan_sendkey,
             report_data,
             report_type,
             update_info_to_send,
@@ -3640,6 +3706,69 @@ def send_to_wework(
             return False
 
     print(f"企业微信所有 {len(batches)} 批次发送完成 [{report_type}]")
+    return True
+
+
+def send_to_serverchan(
+    sendkey: str,
+    report_data: Dict,
+    report_type: str,
+    update_info: Optional[Dict] = None,
+    proxy_url: Optional[str] = None,
+    mode: str = "daily",
+) -> bool:
+    """发送到Server酱（推送到微信）"""
+    headers = {"Content-Type": "application/json"}
+    proxies = None
+    if proxy_url:
+        proxies = {"http": proxy_url, "https": proxy_url}
+
+    # 获取分批内容
+    batches = split_content_into_batches(
+        report_data, "serverchan", update_info, mode=mode
+    )
+
+    print(f"Server酱消息分为 {len(batches)} 批次发送 [{report_type}]")
+
+    url = f"https://sctapi.ftqq.com/{sendkey}.send"
+
+    for i, batch_content in enumerate(batches, 1):
+        batch_size = len(batch_content.encode("utf-8"))
+        print(
+            f"发送Server酱第 {i}/{len(batches)} 批次，大小：{batch_size} 字节 [{report_type}]"
+        )
+
+        title = f"TrendRadar {report_type}"
+        if len(batches) > 1:
+            title += f" [{i}/{len(batches)}]"
+
+        payload = {"title": title, "desp": batch_content}
+
+        try:
+            response = requests.post(
+                url, headers=headers, json=payload, proxies=proxies, timeout=30
+            )
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("code") == 0:
+                    print(f"Server酱第 {i}/{len(batches)} 批次发送成功 [{report_type}]")
+                    if i < len(batches):
+                        time.sleep(CONFIG["BATCH_SEND_INTERVAL"])
+                else:
+                    print(
+                        f"Server酱第 {i}/{len(batches)} 批次发送失败 [{report_type}]，错误：{result.get('message')}"
+                    )
+                    return False
+            else:
+                print(
+                    f"Server酱第 {i}/{len(batches)} 批次发送失败 [{report_type}]，状态码：{response.status_code}"
+                )
+                return False
+        except Exception as e:
+            print(f"Server酱第 {i}/{len(batches)} 批次发送出错 [{report_type}]：{e}")
+            return False
+
+    print(f"Server酱所有 {len(batches)} 批次发送完成 [{report_type}]")
     return True
 
 
@@ -4117,6 +4246,7 @@ class NewsAnalyzer:
                     and CONFIG["EMAIL_TO"]
                 ),
                 (CONFIG["NTFY_SERVER_URL"] and CONFIG["NTFY_TOPIC"]),
+                CONFIG["SERVERCHAN_SENDKEY"],
             ]
         )
 
